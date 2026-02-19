@@ -1,0 +1,111 @@
+#define BLYNK_TEMPLATE_ID "TMPL3O4nPdbb_"
+#define BLYNK_TEMPLATE_NAME "peacock guard"
+#define BLYNK_AUTH_TOKEN "IbbZNp2lsmRZOPTZ45LC7z9PnTgmV0QI"
+
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <BlynkSimpleEsp32.h>
+#include <HTTPClient.h>
+
+// Wi-Fi credentials
+char auth[] = BLYNK_AUTH_TOKEN;
+char ssid[] = "Wokwi-GUEST";   // your hotspot or WiFi name
+char pass[] = "";              // password (if any)
+
+// Pin setup
+int pirPin = 13;
+int ledPin = 12;
+int buzzerPin = 14;
+
+// Virtual pins in Blynk
+#define V_MOTION_STATUS V1
+#define V_LED_STATUS    V2
+#define V_DETECTION_CNT V3
+
+// ThingSpeak info
+String apiKey = "LHSO9B6J5R2JH4T7";  
+const char* server = "http://api.thingspeak.com/update";
+
+int detectionCount = 0;
+BlynkTimer timer;
+
+// Send data to ThingSpeak
+void sendToThingSpeak(int count) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    String url = String(server) + "?api_key=" + apiKey + "&field1=" + String(count);
+    http.begin(url);
+    int httpCode = http.GET();
+    if (httpCode > 0) {
+      Serial.println("✅ ThingSpeak update OK. Count = " + String(count));
+    } else {
+      Serial.println("❌ ThingSpeak update failed");
+    }
+    http.end();
+  }
+}
+
+// Motion detection
+void checkMotion() {
+  int motion = digitalRead(pirPin);
+
+  if (motion == HIGH) {
+    detectionCount++;
+
+    Serial.println("🦚 Motion detected — Peacock may be present!");
+
+    // Local alerts
+    digitalWrite(ledPin, HIGH);
+    tone(buzzerPin, 1000); 
+
+    // --- Blynk Dashboard Updates ---
+    Blynk.virtualWrite(V_MOTION_STATUS, "🦚 Peacock Detected!");
+    Blynk.virtualWrite(V_LED_STATUS, 1);  // LED ON
+    Blynk.virtualWrite(V_DETECTION_CNT, detectionCount);
+
+    // --- Notification ---
+    Blynk.logEvent("peacock_alert", "🦚 Peacock Detected in the Farm!");
+
+    // --- ThingSpeak ---
+    sendToThingSpeak(detectionCount);
+
+    delay(2000);
+    noTone(buzzerPin);
+  } 
+  else {
+    digitalWrite(ledPin, LOW);
+    noTone(buzzerPin);
+
+    // --- Blynk Dashboard Reset ---
+    Blynk.virtualWrite(V_MOTION_STATUS, "No Motion");
+    Blynk.virtualWrite(V_LED_STATUS, 0);  
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(pirPin, INPUT);
+  pinMode(ledPin, OUTPUT);
+  pinMode(buzzerPin, OUTPUT);
+
+  Serial.println("Connecting to WiFi...");
+  WiFi.begin(ssid, pass);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\n✅ WiFi Connected!");
+
+  Serial.println("Connecting to Blynk...");
+  Blynk.begin(auth, ssid, pass);
+  delay(2000);
+  Serial.println("✅ Blynk Connected Successfully!");
+
+  Serial.println("System Ready — Monitoring for peacock movement...");
+  timer.setInterval(1000L, checkMotion);
+}
+
+void loop() {
+  Blynk.run();
+  timer.run();
+}
